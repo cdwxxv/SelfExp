@@ -8,3 +8,10 @@ demo/*
 lightning_logs/*
 
 ckpt/*
+
+*/__pycache__/*
+
+results/*
+
+data/*.pt
+data/*.json
