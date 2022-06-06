@@ -55,6 +55,7 @@ class SEXLNet(LightningModule):
                 json_line = json.loads(line)
                 sentence = json_line["sentence"].strip().strip(' .')
                 self.concept_idx[i] = sentence
+        self.tokenized_concepts = self.tokenizer(list(self.concept_idx.values()), padding=True, return_tensors="pt")
                     
 
     @staticmethod
@@ -81,19 +82,13 @@ class SEXLNet(LightningModule):
     def configure_optimizers(self):
         return AdamW(self.parameters(), lr=self.hparams.lr, betas=(0.9, 0.99),
                      eps=1e-8)
-    
-    def forward(self, batch):
         
-        self.concept_store = []
-        for bch in chunks(list(self.concept_idx.values()), n=5):
-            inputs = self.tokenizer(bch, padding=True, return_tensors="pt")
-            for key, value in inputs.items():
-                inputs[key] = value
-            outputs = self.model(**inputs)
-            pooled_rep = self.dropout(self.pooler(outputs['last_hidden_state']))
-            self.concept_store.append(pooled_rep)
+    def foward_concepts(self, tokenized_concepts):
+        
+        outputs = self.model(**tokenized_concepts)
+        self.concept_reps = self.pooler(outputs['last_hidden_state'])
 
-        self.concept_store = torch.cat(self.concept_store, dim=0)
+    def forward(self, batch):
         
         # self.concept_store = self.concept_store.to(self.model.device)
         # print(self.concept_store.size(), self.hparams.concept_store)
@@ -123,11 +118,11 @@ class SEXLNet(LightningModule):
 
     def gil(self, pooled_input):  # [batch size, 768]
         batch_size = pooled_input.size(0)
-        inner_products = torch.mm(pooled_input, self.concept_store.T)  # [batch size, 768] * [768, #concepts] = [batch size, #concepts]
-        concept_norm, input_norm = torch.norm(self.concept_store, dim=1), torch.norm(pooled_input, dim=1)
+        inner_products = torch.mm(pooled_input, self.concept_reps.T)  # [batch size, 768] * [768, #concepts] = [batch size, #concepts]
+        concept_norm, input_norm = torch.norm(self.concept_reps, dim=1), torch.norm(pooled_input, dim=1)
         cos_sim = torch.div(torch.div(inner_products, concept_norm.T), input_norm)
         _, topk_indices = torch.topk(cos_sim, k=self.topk)
-        topk_concepts = torch.index_select(self.concept_store, 0, topk_indices.view(-1))
+        topk_concepts = torch.index_select(self.concept_reps, 0, topk_indices.view(-1))
         topk_concepts = topk_concepts.view(batch_size, self.topk, -1).contiguous()
 
         concat_pooled_concepts = torch.cat([pooled_input.unsqueeze(1), topk_concepts], dim=1)  # [1, batch size + k, 768]

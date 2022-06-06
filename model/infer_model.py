@@ -16,6 +16,7 @@ from data import ClassificationData
 def load_model(ckpt, batch_size):
     model = SEXLNet.load_from_checkpoint(ckpt)
     model.eval()
+    model.foward_concepts(model.tokenized_concepts)
     trainer = Trainer(gpus=1)
     dm = ClassificationData(basedir=model.hparams.dataset_basedir, tokenizer_name=model.hparams.model_name,
                             batch_size=batch_size)
