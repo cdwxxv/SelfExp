@@ -11,21 +11,27 @@ from transformers.modeling_utils import SequenceSummary
 
 from model_utils import TimeDistributed
 
-from utils import chunks
-
 class SEXLNet(LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.hparams = hparams
         self.save_hyperparameters()
         config = AutoConfig.from_pretrained(self.hparams.model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(self.hparams.model_name)
-        self.model = AutoModel.from_pretrained(self.hparams.model_name)
-        self.pooler = SequenceSummary(config)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.hparams.model_name, do_lower_case=True)
+        self.model = AutoModel.from_pretrained(self.hparams.model_name).to('cuda')
+        self.pooler = SequenceSummary(config).to('cuda')
 
         self.classifier = nn.Linear(config.d_model, self.hparams.num_classes)
 
-        self.concept_store = torch.load(self.hparams.concept_store)
+        self.concept_idx = OrderedDict()
+        with open('data/emotions_with_parse.json', 'r') as input_file:
+            for i, line in enumerate(input_file):
+                json_line = json.loads(line)
+                sentence = json_line["sentence"].strip().strip(' .')
+                self.concept_idx[i] = sentence
+        self.tokenized_concepts = self.tokenizer(list(self.concept_idx.values()), padding=True, return_tensors="pt")
+        for key, value in self.tokenized_concepts.items():
+            self.tokenized_concepts[key] = value.to('cuda')
 
         self.phrase_logits = TimeDistributed(nn.Linear(config.d_model,
                                                         self.hparams.num_classes))
@@ -49,15 +55,7 @@ class SEXLNet(LightningModule):
         self.dropout = nn.Dropout(config.dropout)
         self.loss = nn.CrossEntropyLoss()
         
-        self.concept_idx = OrderedDict()
-        with open('data/emotions_with_parse.json', 'r') as input_file:
-            for i, line in enumerate(input_file):
-                json_line = json.loads(line)
-                sentence = json_line["sentence"].strip().strip(' .')
-                self.concept_idx[i] = sentence
-        self.tokenized_concepts = self.tokenizer(list(self.concept_idx.values()), padding=True, return_tensors="pt")
                     
-
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
@@ -83,16 +81,27 @@ class SEXLNet(LightningModule):
         return AdamW(self.parameters(), lr=self.hparams.lr, betas=(0.9, 0.99),
                      eps=1e-8)
         
-    def foward_concepts(self, tokenized_concepts):
+    def new_model(self):
+        self.model_original = AutoModel.from_pretrained('xlnet-base-cased')
+        self.model_original.to('cuda')
+        self.model_original.eval()
+        config = AutoConfig.from_pretrained('xlnet-base-cased')
+        self.pooler_new = SequenceSummary(config).to('cuda')
         
-        outputs = self.model(**tokenized_concepts)
+    def generate_concept_emb(self):
+        
+        outputs = self.model(**self.tokenized_concepts)
         self.concept_reps = self.pooler(outputs['last_hidden_state'])
+        # outputs = self.model_original(**self.tokenized_concepts)
+        # self.concept_reps = self.pooler_new(outputs['last_hidden_state'])
 
     def forward(self, batch):
         
+        self.generate_concept_emb()
         # self.concept_store = self.concept_store.to(self.model.device)
         # print(self.concept_store.size(), self.hparams.concept_store)
         tokens, tokens_mask, padded_ndx_tensor, labels = batch
+        tokens, tokens_mask, padded_ndx_tensor, labels = tokens.to('cuda'), tokens_mask.to('cuda'), padded_ndx_tensor.to('cuda'), labels.to('cuda')
 
         # step 1: encode the sentence
         sentence_cls, hidden_state = self.forward_classifier(input_ids=tokens,
@@ -120,7 +129,8 @@ class SEXLNet(LightningModule):
         batch_size = pooled_input.size(0)
         inner_products = torch.mm(pooled_input, self.concept_reps.T)  # [batch size, 768] * [768, #concepts] = [batch size, #concepts]
         concept_norm, input_norm = torch.norm(self.concept_reps, dim=1), torch.norm(pooled_input, dim=1)
-        cos_sim = torch.div(torch.div(inner_products, concept_norm.T), input_norm)
+        cos_sim = torch.div(torch.div(inner_products, concept_norm.T).T, input_norm).T
+        print(cos_sim)
         _, topk_indices = torch.topk(cos_sim, k=self.topk)
         topk_concepts = torch.index_select(self.concept_reps, 0, topk_indices.view(-1))
         topk_concepts = topk_concepts.view(batch_size, self.topk, -1).contiguous()
@@ -150,10 +160,10 @@ class SEXLNet(LightningModule):
         outputs = self.model(input_ids=input_ids,
                              token_type_ids=token_type_ids,
                              attention_mask=attention_mask,
-                             output_hidden_states=True)
-        hidden_states = outputs["hidden_states"]
-        cls_hidden_state = self.dropout(self.pooler(hidden_states[-1]))
-        return cls_hidden_state, hidden_states[-1]
+                             output_hidden_states=True)     
+        cls_hidden_state = self.dropout(self.pooler(outputs["last_hidden_state"]))
+        # cls_hidden_state = self.dropout(self.pooler_new(outputs["last_hidden_state"]))
+        return cls_hidden_state, outputs["last_hidden_state"]
 
     def training_step(self, batch, batch_idx):
         # Load the data into variables

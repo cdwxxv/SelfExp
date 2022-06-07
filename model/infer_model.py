@@ -9,14 +9,16 @@ import pandas as pd
 import resource
 from argparse import ArgumentParser
 
+from transformers import AutoTokenizer, AutoModel, AutoConfig
+
 from SE_XLNet import SEXLNet
 from data import ClassificationData
 
 
 def load_model(ckpt, batch_size):
     model = SEXLNet.load_from_checkpoint(ckpt)
+    model.to('cuda')
     model.eval()
-    model.foward_concepts(model.tokenized_concepts)
     trainer = Trainer(gpus=1)
     dm = ClassificationData(basedir=model.hparams.dataset_basedir, tokenizer_name=model.hparams.model_name,
                             batch_size=batch_size)
@@ -48,7 +50,7 @@ def eval(model, dataloader, concept_map, dev_file, paths_output_loc: str = None)
                                                 list_of_interpret_dict=interpret_dict_list,
                                                 dev_samples=dev_samples,
                                                 current_idx=i)
-            accs.append(acc)
+            accs.append(acc.cpu())
             batch_predicted_labels = torch.argmax(logits, -1)
             predicted_labels.extend(batch_predicted_labels.tolist())
 
