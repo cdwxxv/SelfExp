@@ -17,6 +17,7 @@ from data import ClassificationData
 
 def load_model(ckpt, batch_size):
     model = SEXLNet.load_from_checkpoint(ckpt)
+    model.add_pretrained()
     model.to('cuda')
     model.eval()
     trainer = Trainer(gpus=1)

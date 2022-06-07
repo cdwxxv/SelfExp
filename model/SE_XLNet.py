@@ -81,19 +81,30 @@ class SEXLNet(LightningModule):
         return AdamW(self.parameters(), lr=self.hparams.lr, betas=(0.9, 0.99),
                      eps=1e-8)
         
-    def new_model(self):
-        self.model_original = AutoModel.from_pretrained('xlnet-base-cased')
-        self.model_original.to('cuda')
-        self.model_original.eval()
-        config = AutoConfig.from_pretrained('xlnet-base-cased')
-        self.pooler_new = SequenceSummary(config).to('cuda')
+    def add_pretrained(self):
+        self.model_pretrained = AutoModel.from_pretrained('xlnet-base-cased')
+        self.model_pretrained.to('cuda')
+        self.model_pretrained.eval()
+        # config = AutoConfig.from_pretrained('xlnet-base-cased')
+        # self.pooler_new = SequenceSummary(config).to('cuda')
         
     def generate_concept_emb(self):
         
         outputs = self.model(**self.tokenized_concepts)
         self.concept_reps = self.pooler(outputs['last_hidden_state'])
-        # outputs = self.model_original(**self.tokenized_concepts)
-        # self.concept_reps = self.pooler_new(outputs['last_hidden_state'])
+        # outputs = self.model_pretrained(**self.tokenized_concepts)
+        # self.concept_reps = outputs['last_hidden_state'][:, -1]
+        
+    def forward_classifier(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, token_type_ids: torch.Tensor = None):
+        """Returns the pooled token
+        """
+        outputs = self.model(input_ids=input_ids,
+                             token_type_ids=token_type_ids,
+                             attention_mask=attention_mask,
+                             output_hidden_states=True)
+        cls_hidden_state = self.dropout(self.pooler(outputs["last_hidden_state"]))
+        # cls_hidden_state = outputs["last_hidden_state"][:, -1]
+        return cls_hidden_state, outputs["last_hidden_state"]
 
     def forward(self, batch):
         
@@ -152,18 +163,6 @@ class SEXLNet(LightningModule):
         phrase_level_activations = phrase_level_activations - pooled_seq_rep
         phrase_level_logits = self.phrase_logits(phrase_level_activations)
         return phrase_level_logits
-
-
-    def forward_classifier(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, token_type_ids: torch.Tensor = None):
-        """Returns the pooled token
-        """
-        outputs = self.model(input_ids=input_ids,
-                             token_type_ids=token_type_ids,
-                             attention_mask=attention_mask,
-                             output_hidden_states=True)     
-        cls_hidden_state = self.dropout(self.pooler(outputs["last_hidden_state"]))
-        # cls_hidden_state = self.dropout(self.pooler_new(outputs["last_hidden_state"]))
-        return cls_hidden_state, outputs["last_hidden_state"]
 
     def training_step(self, batch, batch_idx):
         # Load the data into variables
