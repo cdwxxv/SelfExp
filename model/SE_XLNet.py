@@ -20,6 +20,7 @@ class SEXLNet(LightningModule):
         self.tokenizer = AutoTokenizer.from_pretrained(self.hparams.model_name, do_lower_case=True)
         self.model = AutoModel.from_pretrained(self.hparams.model_name).to('cuda')
         self.pooler = SequenceSummary(config).to('cuda')
+        # self.pooler_concept = SequenceSummary(config).to('cuda')
 
         self.classifier = nn.Linear(config.d_model, self.hparams.num_classes)
 
@@ -85,8 +86,6 @@ class SEXLNet(LightningModule):
         self.model_pretrained = AutoModel.from_pretrained('xlnet-base-cased')
         self.model_pretrained.to('cuda')
         self.model_pretrained.eval()
-        # config = AutoConfig.from_pretrained('xlnet-base-cased')
-        # self.pooler_new = SequenceSummary(config).to('cuda')
         
     def generate_concept_emb(self):
         
@@ -103,6 +102,10 @@ class SEXLNet(LightningModule):
                              attention_mask=attention_mask,
                              output_hidden_states=True)
         cls_hidden_state = self.dropout(self.pooler(outputs["last_hidden_state"]))
+        # outputs = self.model_pretrained(input_ids=input_ids,
+        #                      token_type_ids=token_type_ids,
+        #                      attention_mask=attention_mask,
+        #                      output_hidden_states=True)
         # cls_hidden_state = outputs["last_hidden_state"][:, -1]
         return cls_hidden_state, outputs["last_hidden_state"]
 
