@@ -79,18 +79,18 @@ def gil_interpret(concept_map, list_of_interpret_dict):
 
 
 def lil_interpret(logits, list_of_interpret_dict, dev_samples, current_idx):
-    sf_logits = torch.softmax(logits, dim=1).tolist()
-    lil_sf_logits = torch.softmax(list_of_interpret_dict["lil_logits"], dim=-1).tolist()
+    sfmx_logits = torch.softmax(logits, dim=1).tolist()  # [batch size, cls num]
+    lil_sfmx_logits = torch.softmax(list_of_interpret_dict["lil_logits"], dim=-1).tolist()  # [batch size, phrase num, cls num]
 
     lil_outputs = []
-    for idx, (sf_item, lil_sf_item) in enumerate(zip(sf_logits, lil_sf_logits)):
+    for idx, (sfmx_item, lil_sfmx_item) in enumerate(zip(sfmx_logits, lil_sfmx_logits)):  # iterate through batch
         dev_sample = dev_samples[current_idx + idx]
         lil_dict = {}
-        argmax_sf, _ = max(enumerate(sf_item), key=itemgetter(1))
-        for phrase_idx, phrase in enumerate(dev_sample["parse_tree"]):
-            phrase_logits = lil_sf_logits[idx][phrase_idx]
-            relevance_score = phrase_logits[argmax_sf] - sf_item[argmax_sf]
-            if phrase_idx != 0:
+        argmax_sfmx, _ = max(enumerate(sfmx_item), key=itemgetter(1))  # get the max val sfmx_item in enum(id, sfmx_item)
+        for phrase_idx, phrase in enumerate(dev_sample["parse_tree"]):  # iterate through parses of current sample
+            phrase_sfmx_logits = lil_sfmx_logits[idx][phrase_idx]
+            relevance_score = phrase_sfmx_logits[argmax_sfmx] - sfmx_item[argmax_sfmx]
+            if phrase_idx != 0:  # 0 is the root
                 lil_dict[phrase["phrase"]] = relevance_score
         lil_dict = sorted(lil_dict.items(), key=lambda item: item[1], reverse=True)[:5]
         lil_outputs.append(lil_dict)

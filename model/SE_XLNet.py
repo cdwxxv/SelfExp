@@ -124,9 +124,9 @@ class SEXLNet(LightningModule):
         logits = self.classifier(sentence_cls)
 
         lil_logits = self.lil(hidden_state=hidden_state,
-                              nt_idx_matrix=padded_ndx_tensor)
-        lil_logits_mean = torch.mean(lil_logits, dim=1)
-        gil_logits, topk_indices = self.gil(pooled_input=sentence_cls)
+                              nt_idx_matrix=padded_ndx_tensor)  # [batch size, phrase num, cls num]
+        lil_logits_mean = torch.mean(lil_logits, dim=1)  # [batch size, cls num]
+        gil_logits, topk_indices = self.gil(pooled_input=sentence_cls)  # [batch size, cls num]
 
         logits = logits + self.lamda * lil_logits_mean + self.gamma * gil_logits
         predicted_labels = torch.argmax(logits, -1)
@@ -138,34 +138,33 @@ class SEXLNet(LightningModule):
 
         return logits, acc, {"topk_indices": topk_indices,
                              "lil_logits": lil_logits}
+        
+    def lil(self, hidden_state, nt_idx_matrix):  # [batch size, seq length, 768] and [batch size, phrase number, seq length]
+        phrase_level_rep = self.activation(torch.bmm(nt_idx_matrix, hidden_state))  # [batch size, phrase number, 768]
+        pooled_seq_rep = self.sequence_summary(hidden_state).unsqueeze(1)  # [batch size, 768] -> [batch size, 1 , 768]
+        phrase_level_activations = phrase_level_rep - pooled_seq_rep  # [batch size, phrase number, 768] When iterating over the dimension sizes, starting at the trailing dimension, the dimension sizes must either be equal, one of them is 1, or one of them does not exist.
+        phrase_level_logits = self.phrase_logits(phrase_level_activations)  # [batch size, phrase number, class num]
+        return phrase_level_logits
 
     def gil(self, pooled_input):  # [batch size, 768]
         batch_size = pooled_input.size(0)
         inner_products = torch.mm(pooled_input, self.concept_reps.T)  # [batch size, 768] * [768, #concepts] = [batch size, #concepts]
         concept_norm, input_norm = torch.norm(self.concept_reps, dim=1), torch.norm(pooled_input, dim=1)
-        cos_sim = torch.div(torch.div(inner_products, concept_norm.T).T, input_norm).T
-        print(cos_sim)
+        cos_sim = torch.div(torch.div(inner_products, concept_norm.T).T, input_norm).T  # [batch size, #concepts]
+        # print(cos_sim)
         _, topk_indices = torch.topk(cos_sim, k=self.topk)
-        topk_concepts = torch.index_select(self.concept_reps, 0, topk_indices.view(-1))
+        topk_concepts = torch.index_select(self.concept_reps, 0, topk_indices.view(-1))  # [k, 768]
         topk_concepts = topk_concepts.view(batch_size, self.topk, -1).contiguous()
 
-        concat_pooled_concepts = torch.cat([pooled_input.unsqueeze(1), topk_concepts], dim=1)  # [1, batch size + k, 768]
-        attended_concepts, _ = self.multihead_attention(query=concat_pooled_concepts,
+        concat_pooled_concepts = torch.cat([pooled_input.unsqueeze(1), topk_concepts], dim=1)  # [batch size, 1 + k, 768]
+        attended_concepts, _ = self.multihead_attention(query=concat_pooled_concepts,  # [batch size, 1 + k, 768]
                                                      key=concat_pooled_concepts,
                                                      value=concat_pooled_concepts)
 
-        gil_topk_logits = self.topk_gil_mlp(attended_concepts[:,0,:])
+        gil_topk_logits = self.topk_gil_mlp(attended_concepts[:,0,:])  # [batch size, 768] -> [batch size, cls num]
         # print(gil_topk_logits.size())
         # gil_logits = torch.mean(gil_topk_logits, dim=1)
         return gil_topk_logits, topk_indices
-
-    def lil(self, hidden_state, nt_idx_matrix):
-        phrase_level_hidden = torch.bmm(nt_idx_matrix, hidden_state)
-        phrase_level_activations = self.activation(phrase_level_hidden)
-        pooled_seq_rep = self.sequence_summary(hidden_state).unsqueeze(1)
-        phrase_level_activations = phrase_level_activations - pooled_seq_rep
-        phrase_level_logits = self.phrase_logits(phrase_level_activations)
-        return phrase_level_logits
 
     def training_step(self, batch, batch_idx):
         # Load the data into variables
