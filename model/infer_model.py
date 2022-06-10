@@ -90,7 +90,7 @@ def lil_interpret(logits, list_of_interpret_dict, dev_samples, current_idx):
         for phrase_idx, phrase in enumerate(dev_sample["parse_tree"]):  # iterate through parses of current sample
             phrase_sfmx_logits = lil_sfmx_logits[idx][phrase_idx]
             relevance_score = phrase_sfmx_logits[argmax_sfmx] - sfmx_item[argmax_sfmx]
-            if phrase_idx != 0:  # 0 is the root
+            if phrase["phrase_label"] != 'TOP':  # 0 is the root
                 lil_dict[phrase["phrase"]] = relevance_score
         lil_dict = sorted(lil_dict.items(), key=lambda item: item[1], reverse=True)[:5]
         lil_outputs.append(lil_dict)

@@ -25,7 +25,7 @@ class SEXLNet(LightningModule):
         self.classifier = nn.Linear(config.d_model, self.hparams.num_classes)
 
         self.concept_idx = OrderedDict()
-        with open('data/emotions_with_parse.json', 'r') as input_file:
+        with open('data/temp_with_parse.json', 'r') as input_file:
             for i, line in enumerate(input_file):
                 json_line = json.loads(line)
                 sentence = json_line["sentence"].strip().strip(' .')

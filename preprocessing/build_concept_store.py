@@ -12,11 +12,11 @@ config_dict = {'xlnet-base-cased': XLNetConfig,
                'roberta-base': RobertaConfig}
 
 def concept_store(model_name, input_file_name, output_folder, max_concept_length, batch_size=5):
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModel.from_pretrained(model_name).to('cuda')
-    model.eval()
-    config = config_dict[model_name]
-    sequence_summary = SequenceSummary(config)
+    # tokenizer = AutoTokenizer.from_pretrained(model_name)
+    # model = AutoModel.from_pretrained(model_name).to('cuda')
+    # model.eval()
+    # config = config_dict[model_name]
+    # sequence_summary = SequenceSummary(config)
 
     concept_idx = OrderedDict()
 
@@ -29,18 +29,18 @@ def concept_store(model_name, input_file_name, output_folder, max_concept_length
                 concept_idx[idx] = sentence
                 idx += 1
 
-    concept_tensor = []
-    for batch in chunks(list(concept_idx.values()), n=batch_size):
-        inputs = tokenizer(batch, padding=True, return_tensors="pt")
-        for key, value in inputs.items():
-            inputs[key] = value.to('cuda')
-        outputs = model(**inputs)
-        pooled_rep = sequence_summary(outputs[0])
-        concept_tensor.append(pooled_rep.detach().cpu())
+    # concept_tensor = []
+    # for batch in chunks(list(concept_idx.values()), n=batch_size):
+    #     inputs = tokenizer(batch, padding=True, return_tensors="pt")
+    #     for key, value in inputs.items():
+    #         inputs[key] = value.to('cuda')
+    #     outputs = model(**inputs)
+    #     pooled_rep = sequence_summary(outputs[0])
+    #     concept_tensor.append(pooled_rep.detach().cpu())
 
-    concept_tensor = torch.cat(concept_tensor, dim=0)
+    # concept_tensor = torch.cat(concept_tensor, dim=0)
 
-    torch.save(concept_tensor, f'{output_folder}/concept_store.pt')
+    # torch.save(concept_tensor, f'{output_folder}/concept_store.pt')
     with open(f'{output_folder}/concept_idx.json', 'w') as out_file:
         json.dump(concept_idx,out_file)
 
